@@ -6,6 +6,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'dart:async';
+import 'package:permission_handler/permission_handler.dart';
 
 class LiveMap extends StatefulWidget {
   const LiveMap({super.key});
@@ -14,54 +15,118 @@ class LiveMap extends StatefulWidget {
   State<LiveMap> createState() => _LiveMapState();
 }
 
-class _LiveMapState extends State<LiveMap> {
+// ✅ Implement WidgetsBindingObserver
+class _LiveMapState extends State<LiveMap> with WidgetsBindingObserver {
   LatLng _currentPosition = const LatLng(28.6139, 77.2090); // Default Delhi
   Timer? _timer;
   final MapController _mapController = MapController();
   bool _hasPermission = false;
+  bool _isLocationServiceEnabled = false;
+  String _statusMessage = "Initializing...";
 
   @override
   void initState() {
     super.initState();
-    _initLocationFlow(); // ask permission first, then start updates
+    WidgetsBinding.instance.addObserver(this);
+    _initLocationFlow();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _timer?.cancel(); // cancel timer safely
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _checkPermissionStatus();
+    }
+  }
+
+  Future<void> _checkPermissionStatus() async {
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.whileInUse ||
+        permission == LocationPermission.always) {
+      setState(() {
+        _hasPermission = true;
+        _statusMessage = "Permission granted";
+      });
+      _startLocationUpdates();
+    }
   }
 
   Future<void> _initLocationFlow() async {
-    // 1) Ensure location services are on
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      // Try to prompt the user to enable location services (Android shows a system dialog)
-      await Geolocator.openLocationSettings();
-      // Re-check
-      if (!await Geolocator.isLocationServiceEnabled()) {
-        return;
-      }
+    setState(() => _statusMessage = "Checking location services...");
+
+    // 1) Check location services
+    _isLocationServiceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!_isLocationServiceEnabled) {
+      setState(() => _statusMessage = "Location services disabled");
+      return;
     }
 
-    // 2) Request permission if needed
-    var permission = await Geolocator.checkPermission();
+    // 2) Request permissions
+    await _requestLocationPermissions();
+
+    if (!_hasPermission) {
+      setState(() => _statusMessage = "Location permission denied");
+      return;
+    }
+
+    // 3) Start location updates
+    await _startLocationUpdates();
+  }
+
+  Future<void> _requestLocationPermissions() async {
+    LocationPermission permission = await Geolocator.checkPermission();
+
     if (permission == LocationPermission.denied ||
         permission == LocationPermission.deniedForever) {
       permission = await Geolocator.requestPermission();
+
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
-        // Permission not granted, keep _hasPermission = false
+        setState(() {
+          _hasPermission = false;
+          _statusMessage = "Location permission denied";
+        });
         return;
       }
     }
 
-    setState(() => _hasPermission = true);
+    _isLocationServiceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!_isLocationServiceEnabled) {
+      setState(() => _statusMessage = "Location services disabled");
+      return;
+    }
 
-    // 3) Get initial fix and start 2s updates
-    await _updateLocation(moveMap: true);
-    _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 2), (_) {
-      _updateLocation(moveMap: false);
+    setState(() {
+      _hasPermission = true;
+      _statusMessage = "Permission granted";
     });
   }
 
+  Future<void> _startLocationUpdates() async {
+    setState(() => _statusMessage = "Getting location...");
+
+    try {
+      await _updateLocation(moveMap: true);
+
+      _timer?.cancel();
+      _timer = Timer.periodic(const Duration(seconds: 2), (_) {
+        _updateLocation(moveMap: false);
+      });
+
+      setState(() => _statusMessage = "Tracking location");
+    } catch (e) {
+      setState(() => _statusMessage = "Error getting location: $e");
+    }
+  }
+
   Future<void> _updateLocation({bool moveMap = false}) async {
-    if (!_hasPermission) return;
+    if (!_hasPermission || !_isLocationServiceEnabled) return;
 
     try {
       final position = await Geolocator.getCurrentPosition(
@@ -70,10 +135,9 @@ class _LiveMapState extends State<LiveMap> {
 
       final target = LatLng(position.latitude, position.longitude);
 
-      // Avoid rebuilding/moving if no significant change
       final d = const Distance();
       final meters = d.as(LengthUnit.Meter, _currentPosition, target);
-      final movedEnough = meters > 1.0; // update when moved >1m
+      final movedEnough = meters > 1.0;
 
       if (movedEnough || moveMap) {
         setState(() => _currentPosition = target);
@@ -81,8 +145,8 @@ class _LiveMapState extends State<LiveMap> {
           _mapController.move(target, 18.0);
         }
       }
-    } catch (_) {
-      // Swallow errors; can log if needed
+    } catch (e) {
+      setState(() => _statusMessage = "Location error: $e");
     }
   }
 
@@ -91,36 +155,47 @@ class _LiveMapState extends State<LiveMap> {
       await _initLocationFlow();
       return;
     }
+
+    if (!_isLocationServiceEnabled) {
+      setState(() => _statusMessage = "Enable location services first");
+      return;
+    }
+
     try {
       final pos = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       );
       final target = LatLng(pos.latitude, pos.longitude);
-      setState(() => _currentPosition = target);
+      setState(() {
+        _currentPosition = target;
+        _statusMessage = "Location updated";
+      });
       _mapController.move(target, 18.0);
-    } catch (_) {}
+    } catch (e) {
+      setState(() => _statusMessage = "Error getting location: $e");
+    }
   }
 
   Future<void> _shareLocationWhatsApp() async {
+    if (!_hasPermission) {
+      setState(() => _statusMessage = "Need location permission to share");
+      return;
+    }
+
     final lat = _currentPosition.latitude;
     final lng = _currentPosition.longitude;
-
-    final mapsUrl =
-        'https://www.google.com/maps/search/?api=1&query=$lat,$lng';
+    final mapsUrl = 'https://www.google.com/maps/search/?api=1&query=$lat,$lng';
     final text = Uri.encodeComponent('My location: $mapsUrl');
-
     final waUrl = 'https://api.whatsapp.com/send?text=$text';
 
-    await launchUrlString(
-      waUrl,
-      mode: LaunchMode.externalApplication,
-    );
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
+    if (await canLaunchUrlString(waUrl)) {
+      await launchUrlString(
+        waUrl,
+        mode: LaunchMode.externalApplication,
+      );
+    } else {
+      setState(() => _statusMessage = "Cannot launch WhatsApp");
+    }
   }
 
   @override
@@ -137,7 +212,8 @@ class _LiveMapState extends State<LiveMap> {
             ),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(20),
-              child: FlutterMap(
+              child: _hasPermission && _isLocationServiceEnabled
+                  ? FlutterMap(
                 mapController: _mapController,
                 options: MapOptions(center: _currentPosition, zoom: 15),
                 children: [
@@ -159,6 +235,26 @@ class _LiveMapState extends State<LiveMap> {
                     ),
                   ]),
                 ],
+              )
+                  : Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.location_disabled,
+                        size: 40, color: Colors.grey),
+                    const SizedBox(height: 16),
+                    Text(
+                      _statusMessage,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.grey),
+                    ),
+                    const SizedBox(height: 16),
+                    ElevatedButton(
+                      onPressed: _initLocationFlow,
+                      child: const Text("Enable Location"),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
