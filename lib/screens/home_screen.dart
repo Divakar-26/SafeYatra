@@ -1,8 +1,11 @@
+// home_screen.dart
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'auth_screen.dart';
 import 'live_map.dart';
 import 'heartbeat_panel.dart';
+import 'package:url_launcher/url_launcher.dart'; // ADD for launchUrl with Uri [uses tel:]
+// If you prefer string helpers, use: import 'package:url_launcher/url_launcher_string.dart';
 
 class HomeScreen extends StatefulWidget {
   final String username;
@@ -93,7 +96,7 @@ class _HomeScreenState extends State<HomeScreen>
               onPressed: () {
                 Navigator.of(context).pushAndRemoveUntil(
                   MaterialPageRoute(builder: (context) => const AuthScreen()),
-                  (route) => false,
+                      (route) => false,
                 );
               },
             ),
@@ -150,7 +153,7 @@ class _HomeScreenState extends State<HomeScreen>
       margin: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(24),
-        color: Colors.grey!.withOpacity(0.5),
+        color: Colors.grey.withOpacity(0.5),
         border: Border.all(color: Colors.teal.withOpacity(0.3)),
         boxShadow: [
           BoxShadow(
@@ -204,8 +207,29 @@ class DashboardTab extends StatefulWidget {
 class _DashboardTabState extends State<DashboardTab> {
   int _segment = 0; // 0 = Location, 1 = Heartbeat
 
+  // ADD: Emergency call helpers
+  Future<void> _confirmAndCall(BuildContext context, String label, String number) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Confirm $label'),
+        content: Text('Call $number now?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Call')),
+        ],
+      ),
+    );
+    if (result != true) return;
+
+    final uri = Uri(scheme: 'tel', path: number);
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
       child: Column(
@@ -253,6 +277,41 @@ class _DashboardTabState extends State<DashboardTab> {
                 ? const LiveMap(key: ValueKey('loc'))          // fixed 350 height inside
                 : const HeartbeatPanel(key: ValueKey('hb')),   // fixed 350 height inside
           ),
+
+          const SizedBox(height: 12),
+
+          // Emergency buttons row
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: () => _confirmAndCall(context, 'Ambulance', '108'), // India ambulance
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.redAccent,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  icon: const Icon(Icons.local_hospital_rounded),
+                  label: const Text('Call ambulance'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _confirmAndCall(context, 'Emergency', '112'), // Single emergency
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: cs.primary),
+                    foregroundColor: cs.primary,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  icon: const Icon(Icons.emergency_share_rounded),
+                  label: const Text('Call emergency'),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -277,7 +336,7 @@ class ProfileTab extends StatelessWidget {
               color: Colors.teal.withOpacity(0.2),
               border: Border.all(color: Colors.teal, width: 2),
             ),
-            child: Icon(Icons.person_rounded, size: 60, color: Colors.teal),
+            child: const Icon(Icons.person_rounded, size: 60, color: Colors.teal),
           ),
           const SizedBox(height: 24),
           const Text('Your Profile', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.grey)),
@@ -294,11 +353,11 @@ class SettingsTab extends StatelessWidget {
   const SettingsTab({super.key});
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(20),
+    return const Padding(
+      padding: EdgeInsets.all(20),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
-        children: const [
+        children: [
           Text('Settings', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.grey)),
           SizedBox(height: 12),
           Text('Customize your experience', style: TextStyle(fontSize: 16, color: Colors.grey)),

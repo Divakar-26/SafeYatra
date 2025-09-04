@@ -2,69 +2,81 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class ApiService {
-  // Replace with your ngrok/laptop URL
-  static const String baseUrl = "https://cc92c58583c8.ngrok-free.app";
+  static const String baseUrl = "https://e0353361587d.ngrok-free.app";
+  static const _jsonHeaders = {'Content-Type': 'application/json'};
 
-  // ---------------- Registration ----------------
   static Future<Map<String, dynamic>> register(
       String fullName,
       String email,
       String password,
-      String confirmPassword) async {
+      String confirmPassword,
+      ) async {
+    final uri = Uri.parse('$baseUrl/register');
     try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/register'),
-        headers: {'Content-Type': 'application/json'},
+      final resp = await http
+          .post(
+        uri,
+        headers: _jsonHeaders,
         body: json.encode({
           'full_name': fullName,
           'email': email,
           'password': password,
           'confirm_password': confirmPassword,
         }),
-      );
+      )
+          .timeout(const Duration(seconds: 20));
 
-      final data = json.decode(response.body);
+      final body = resp.body.isNotEmpty ? resp.body : '{}';
+      Map<String, dynamic> data;
+      try {
+        data = json.decode(body) as Map<String, dynamic>;
+      } catch (_) {
+        data = {'raw': body};
+      }
 
-      if (response.statusCode == 200) {
+      if (resp.statusCode == 200) {
         return {
           'success': true,
           'user_id': data['user_id'],
           'message': data['message'] ?? 'Registration successful',
         };
-      } else {
-        // Handle both dict {"detail": "..."} and list [{"msg": "..."}]
-        if (data['detail'] is List && data['detail'].isNotEmpty) {
-          return {
-            'success': false,
-            'message': data['detail'][0]['msg'] ?? 'Registration failed',
-          };
-        }
-        return {
-          'success': false,
-          'message': data['detail'] ?? 'Registration failed',
-        };
       }
-    } catch (e) {
+
+      // Bubble up server message for debugging
+      final detail = data['detail'];
+      final message = (detail is List && detail.isNotEmpty)
+          ? (detail.first['msg'] ?? 'Registration failed')
+          : (detail?.toString() ?? data['raw']?.toString() ?? 'Registration failed (${resp.statusCode})');
+
+      return {'success': false, 'message': message};
+    } on Exception catch (e) {
       return {'success': false, 'message': 'Network error: $e'};
     }
   }
 
-  // ---------------- Login ----------------
   static Future<Map<String, dynamic>> login(
-      String username, String password) async {
+      String username,
+      String password,
+      ) async {
+    final uri = Uri.parse('$baseUrl/login');
     try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/login'),
-        headers: {'Content-Type': 'application/json'},
-        body: json.encode({
-          'email': username,
-          'password': password,
-        }),
-      );
+      final resp = await http
+          .post(
+        uri,
+        headers: _jsonHeaders,
+        body: json.encode({'email': username, 'password': password}),
+      )
+          .timeout(const Duration(seconds: 20));
 
-      final data = json.decode(response.body);
+      final body = resp.body.isNotEmpty ? resp.body : '{}';
+      Map<String, dynamic> data;
+      try {
+        data = json.decode(body) as Map<String, dynamic>;
+      } catch (_) {
+        data = {'raw': body};
+      }
 
-      if (response.statusCode == 200) {
+      if (resp.statusCode == 200) {
         return {
           'success': true,
           'message': data['message'] ?? 'Login successful',
@@ -72,18 +84,17 @@ class ApiService {
           'setup_complete': data['setup_complete'] ?? false,
           'created_at': data['created_at'],
         };
-      } else {
-        return {
-          'success': false,
-          'message': data['detail'] ?? 'Login failed',
-        };
       }
-    } catch (e) {
+
+      return {
+        'success': false,
+        'message': data['detail']?.toString() ?? data['raw']?.toString() ?? 'Login failed (${resp.statusCode})',
+      };
+    } on Exception catch (e) {
       return {'success': false, 'message': 'Network error: $e'};
     }
   }
 
-  // ---------------- Setup User ----------------
   static Future<Map<String, dynamic>> setupUser(
       String email,
       String name,
@@ -94,11 +105,14 @@ class ApiService {
       String passport,
       String emergencyNumber,
       String medicalConditions,
-      String allergies) async {
+      String allergies,
+      ) async {
+    final uri = Uri.parse('$baseUrl/profile/email/$email');
     try {
-      final response = await http.post(
-        Uri.parse('$baseUrl/profile/email/$email'),
-        headers: {'Content-Type': 'application/json'},
+      final resp = await http
+          .post(
+        uri,
+        headers: _jsonHeaders,
         body: json.encode({
           'name': name,
           'gender': gender,
@@ -110,66 +124,73 @@ class ApiService {
           'medical_conditions': medicalConditions,
           'allergies': allergies,
         }),
-      );
+      )
+          .timeout(const Duration(seconds: 20));
 
-      final data = json.decode(response.body);
-
-      if (response.statusCode == 200) {
-        return {'success': true, 'message': data['message']};
-      } else {
-        return {
-          'success': false,
-          'message': data['detail'] ?? 'Setup failed',
-        };
+      final body = resp.body.isNotEmpty ? resp.body : '{}';
+      Map<String, dynamic> data;
+      try {
+        data = json.decode(body) as Map<String, dynamic>;
+      } catch (_) {
+        data = {'raw': body};
       }
-    } catch (e) {
+
+      if (resp.statusCode == 200) {
+        return {'success': true, 'message': data['message'] ?? 'Setup successful'};
+      }
+      return {
+        'success': false,
+        'message': data['detail']?.toString() ?? data['raw']?.toString() ?? 'Setup failed (${resp.statusCode})',
+      };
+    } on Exception catch (e) {
       return {'success': false, 'message': 'Network error: $e'};
     }
   }
 
-  // ---------------- Get User Setup ----------------
   static Future<Map<String, dynamic>> getUserSetup(String username) async {
+    final uri = Uri.parse('$baseUrl/user/$username/setup');
     try {
-      final response = await http.get(
-        Uri.parse('$baseUrl/user/$username/setup'),
-      );
-
-      final data = json.decode(response.body);
-
-      if (response.statusCode == 200) {
-        return {'success': true, 'data': data};
-      } else {
-        return {
-          'success': false,
-          'message': data['detail'] ?? 'Failed to get user setup',
-        };
+      final resp = await http.get(uri).timeout(const Duration(seconds: 20));
+      final body = resp.body.isNotEmpty ? resp.body : '{}';
+      Map<String, dynamic> data;
+      try {
+        data = json.decode(body) as Map<String, dynamic>;
+      } catch (_) {
+        data = {'raw': body};
       }
-    } catch (e) {
+
+      if (resp.statusCode == 200) {
+        return {'success': true, 'data': data};
+      }
+      return {
+        'success': false,
+        'message': data['detail']?.toString() ?? data['raw']?.toString() ?? 'Failed to get user setup (${resp.statusCode})',
+      };
+    } on Exception catch (e) {
       return {'success': false, 'message': 'Network error: $e'};
     }
   }
 
-  // ---------------- Check Setup Status ----------------
   static Future<Map<String, dynamic>> checkSetupStatus(String username) async {
+    final uri = Uri.parse('$baseUrl/user/$username/setup');
     try {
-      final response = await http.get(
-        Uri.parse('$baseUrl/user/$username/setup'),
-      );
+      final resp = await http.get(uri).timeout(const Duration(seconds: 20));
+      final body = resp.body.isNotEmpty ? resp.body : '{}';
+      Map<String, dynamic> data;
+      try {
+        data = json.decode(body) as Map<String, dynamic>;
+      } catch (_) {
+        data = {'raw': body};
+      }
 
-      final data = json.decode(response.body);
-
-      if (response.statusCode == 200) {
-        return {
-          'success': true,
-          'setup_complete': data['setup_complete'] ?? false,
-        };
-      } else {
-        return {
-          'success': false,
-          'message': data['detail'] ?? 'Failed to check setup status',
-        };
-      } 
-    } catch (e) {
+      if (resp.statusCode == 200) {
+        return {'success': true, 'setup_complete': data['setup_complete'] ?? false};
+      }
+      return {
+        'success': false,
+        'message': data['detail']?.toString() ?? data['raw']?.toString() ?? 'Failed to check setup status (${resp.statusCode})',
+      };
+    } on Exception catch (e) {
       return {'success': false, 'message': 'Network error: $e'};
     }
   }
