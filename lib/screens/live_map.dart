@@ -162,19 +162,34 @@ class _LiveMapState extends State<LiveMap> with WidgetsBindingObserver {
     }
 
     try {
-      final pos = await Geolocator.getCurrentPosition(
+      // ✅ Get cached location instantly
+      final cachedPos = await Geolocator.getLastKnownPosition();
+
+      if (cachedPos != null) {
+        final target = LatLng(cachedPos.latitude, cachedPos.longitude);
+        setState(() {
+          _currentPosition = target;
+          _statusMessage = "Centered instantly (cached)";
+        });
+        _mapController.move(target, 18.0);
+      }
+
+      // ✅ Also fetch fresh GPS in background (but don’t block UI)
+      Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
-      );
-      final target = LatLng(pos.latitude, pos.longitude);
-      setState(() {
-        _currentPosition = target;
-        _statusMessage = "Location updated";
+      ).then((freshPos) {
+        final target = LatLng(freshPos.latitude, freshPos.longitude);
+        setState(() {
+          _currentPosition = target;
+          _statusMessage = "Updated with fresh location";
+        });
+        _mapController.move(target, 18.0);
       });
-      _mapController.move(target, 18.0);
     } catch (e) {
       setState(() => _statusMessage = "Error getting location: $e");
     }
   }
+
 
   Future<void> _shareLocationWhatsApp() async {
     if (!_hasPermission) {
@@ -186,7 +201,9 @@ class _LiveMapState extends State<LiveMap> with WidgetsBindingObserver {
     final lng = _currentPosition.longitude;
     final mapsUrl = 'https://www.google.com/maps/search/?api=1&query=$lat,$lng';
     final text = Uri.encodeComponent('My location: $mapsUrl');
-    final waUrl = 'https://api.whatsapp.com/send?text=$text';
+
+    // ✅ Use wa.me link
+    final waUrl = "https://wa.me/?text=$text";
 
     if (await canLaunchUrlString(waUrl)) {
       await launchUrlString(
@@ -194,9 +211,11 @@ class _LiveMapState extends State<LiveMap> with WidgetsBindingObserver {
         mode: LaunchMode.externalApplication,
       );
     } else {
-      setState(() => _statusMessage = "Cannot launch WhatsApp");
+      setState(() => _statusMessage = "WhatsApp not installed");
     }
   }
+
+
 
   @override
   Widget build(BuildContext context) {
