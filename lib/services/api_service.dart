@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class ApiService {
-  static const String baseUrl = "https://00b5225b1860.ngrok-free.app";
+  static const String baseUrl = "https://0b99aab9e6d4.ngrok-free.app";
   static const _jsonHeaders = {'Content-Type': 'application/json'};
 
   static Future<Map<String, dynamic>> register(
