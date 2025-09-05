@@ -1,4 +1,3 @@
-// live_map.dart
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
@@ -15,6 +14,20 @@ class LiveMap extends StatefulWidget {
   State<LiveMap> createState() => _LiveMapState();
 }
 
+class Geofence {
+  final LatLng center;
+  final double radius; // in meters
+  final String name;
+  final Color color;
+
+  Geofence({
+    required this.center,
+    required this.radius,
+    required this.name,
+    this.color = Colors.blue,
+  });
+}
+
 // ✅ Implement WidgetsBindingObserver
 class _LiveMapState extends State<LiveMap> with WidgetsBindingObserver {
   LatLng _currentPosition = const LatLng(28.6139, 77.2090); // Default Delhi
@@ -23,6 +36,30 @@ class _LiveMapState extends State<LiveMap> with WidgetsBindingObserver {
   bool _hasPermission = false;
   bool _isLocationServiceEnabled = false;
   String _statusMessage = "Initializing...";
+
+  // Hardcoded geofences
+  final List<Geofence> _geofences = [
+    Geofence(
+      center: const LatLng(28.6139, 77.2090), // Delhi coordinates
+      radius: 500, // 500 meters radius
+      name: "Delhi Central Zone",
+      color: Colors.blue.withOpacity(0.3),
+    ),
+    Geofence(
+      center: const LatLng(28.7041, 77.1025), // Another location in Delhi
+      radius: 300, // 300 meters radius
+      name: "North Delhi Zone",
+      color: Colors.red.withOpacity(0.3),
+    ),
+    Geofence(
+      center: const LatLng(28.463093, 77.490384),
+      radius: 100, // 100 meters radius
+      name: "South Delhi Zone",
+      color: Colors.orange.withOpacity(0.3),
+    ),
+  ];
+
+  String _geofenceStatus = "";
 
   @override
   void initState() {
@@ -141,6 +178,10 @@ class _LiveMapState extends State<LiveMap> with WidgetsBindingObserver {
 
       if (movedEnough || moveMap) {
         setState(() => _currentPosition = target);
+
+        // Check if inside any geofence
+        _checkGeofences(target);
+
         if (moveMap) {
           _mapController.move(target, 18.0);
         }
@@ -148,6 +189,30 @@ class _LiveMapState extends State<LiveMap> with WidgetsBindingObserver {
     } catch (e) {
       setState(() => _statusMessage = "Location error: $e");
     }
+  }
+
+  void _checkGeofences(LatLng position) {
+    final d = const Distance();
+    bool insideAnyGeofence = false;
+    String insideGeofenceName = "";
+
+    for (final geofence in _geofences) {
+      final distance = d(position, geofence.center);
+
+      if (distance <= geofence.radius) {
+        insideAnyGeofence = true;
+        insideGeofenceName = geofence.name;
+        break;
+      }
+    }
+
+    setState(() {
+      if (insideAnyGeofence) {
+        _geofenceStatus = "Inside $insideGeofenceName";
+      } else {
+        _geofenceStatus = "Not inside any geofence";
+      }
+    });
   }
 
   Future<void> _centerOnMe() async {
@@ -174,7 +239,7 @@ class _LiveMapState extends State<LiveMap> with WidgetsBindingObserver {
         _mapController.move(target, 18.0);
       }
 
-      // ✅ Also fetch fresh GPS in background (but don’t block UI)
+      // ✅ Also fetch fresh GPS in background (but don't block UI)
       Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       ).then((freshPos) {
@@ -189,7 +254,6 @@ class _LiveMapState extends State<LiveMap> with WidgetsBindingObserver {
       setState(() => _statusMessage = "Error getting location: $e");
     }
   }
-
 
   Future<void> _shareLocationWhatsApp() async {
     if (!_hasPermission) {
@@ -215,8 +279,6 @@ class _LiveMapState extends State<LiveMap> with WidgetsBindingObserver {
     }
   }
 
-
-
   @override
   Widget build(BuildContext context) {
     return SizedBox(
@@ -241,18 +303,51 @@ class _LiveMapState extends State<LiveMap> with WidgetsBindingObserver {
                     'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
                     subdomains: const ['a', 'b', 'c'],
                   ),
-                  MarkerLayer(markers: [
-                    Marker(
-                      point: _currentPosition,
-                      width: 50,
-                      height: 50,
-                      child: const Icon(
-                        Icons.person_pin_circle,
-                        color: Colors.redAccent,
-                        size: 40,
+
+                  // Draw geofence circles
+                  CircleLayer(
+                    circles: _geofences.map((geofence) {
+                      return CircleMarker(
+                        point: geofence.center,
+                        color: geofence.color,
+                        borderColor: geofence.color.withOpacity(0.8),
+                        borderStrokeWidth: 2,
+                        useRadiusInMeter: true,
+                        radius: geofence.radius,
+                      );
+                    }).toList(),
+                  ),
+
+                  // Add markers for geofence centers
+                  MarkerLayer(
+                    markers: [
+                      // Current position marker
+                      Marker(
+                        point: _currentPosition,
+                        width: 50,
+                        height: 50,
+                        child: const Icon(
+                          Icons.person_pin_circle,
+                          color: Colors.redAccent,
+                          size: 40,
+                        ),
                       ),
-                    ),
-                  ]),
+
+                      // Geofence center markers
+                      ..._geofences.map((geofence) {
+                        return Marker(
+                          point: geofence.center,
+                          width: 30,
+                          height: 30,
+                          child: Icon(
+                            Icons.location_pin,
+                            color: geofence.color,
+                            size: 30,
+                          ),
+                        );
+                      }).toList(),
+                    ],
+                  ),
                 ],
               )
                   : Center(
@@ -274,6 +369,23 @@ class _LiveMapState extends State<LiveMap> with WidgetsBindingObserver {
                     ),
                   ],
                 ),
+              ),
+            ),
+          ),
+
+          // Top-left: geofence status
+          Positioned(
+            top: 12,
+            left: 12,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.black.withOpacity(0.7),
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: Text(
+                _geofenceStatus,
+                style: const TextStyle(color: Colors.white, fontSize: 12),
               ),
             ),
           ),
