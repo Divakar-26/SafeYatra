@@ -121,13 +121,49 @@ class _AuthScreenState extends State<AuthScreen>
     }
   }
 
-  void _navigateToHomeScreen(String email) {
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (context) => HomeScreen(username: email), // use email
-      ),
-    );
+  void _navigateToHomeScreen(String email) async {
+    if (email.isEmpty) {
+      // Fallback: navigate with email as name
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => HomeScreen(
+            email: email,
+            name: email,
+          ),
+        ),
+      );
+      return;
+    }
+
+    final profileResult = await ApiService.getProfileByEmail(email);
+
+    if (profileResult['success'] == true &&
+        profileResult['data'] != null &&
+        profileResult['data']['setup_complete'] == true) {
+      String name = profileResult['data']['name'] ?? email;
+
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => HomeScreen(
+            email: email,
+            name: name,
+          ),
+        ),
+      );
+    } else {
+      // Fallback if profile not found or setup incomplete
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (context) => HomeScreen(
+            email: email,
+            name: email, // fallback
+          ),
+        ),
+      );
+    }
   }
+
+
 
   _navigateToSetupScreen(String userId, String email) {
     Navigator.of(context).pushReplacement(

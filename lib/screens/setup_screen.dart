@@ -627,7 +627,10 @@ class _SetupScreenState extends State<SetupScreen>
     if (result['success'] == true) {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-          builder: (context) => HomeScreen(username: widget.email), // ✅ pass email
+          builder: (context) => HomeScreen(
+            email: widget.email,
+            name: widget.email, // fallback until profile fetch updates it
+          ),
         ),
       );
     } else {

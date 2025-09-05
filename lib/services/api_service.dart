@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class ApiService {
-  static const String baseUrl = "https://e0353361587d.ngrok-free.app";
+  static const String baseUrl = "https://27c44cf70839.ngrok-free.app";
   static const _jsonHeaders = {'Content-Type': 'application/json'};
 
   static Future<Map<String, dynamic>> register(
@@ -81,6 +81,7 @@ class ApiService {
           'success': true,
           'message': data['message'] ?? 'Login successful',
           'email': data['email'],
+          'name': data['name'],
           'setup_complete': data['setup_complete'] ?? false,
           'created_at': data['created_at'],
         };
@@ -189,6 +190,46 @@ class ApiService {
       return {
         'success': false,
         'message': data['detail']?.toString() ?? data['raw']?.toString() ?? 'Failed to check setup status (${resp.statusCode})',
+      };
+    } on Exception catch (e) {
+      return {'success': false, 'message': 'Network error: $e'};
+    }
+  }
+  static Future<Map<String, dynamic>> getProfileByEmail(String email) async {
+    if (email.isEmpty) {
+      return {'success': false, 'message': 'Email is empty'};
+    }
+
+    final encodedEmail = Uri.encodeComponent(email.trim());
+    final uri = Uri.parse('$baseUrl/profile/email/$encodedEmail');
+
+    print('Fetching profile for email: $email'); // Debug log
+    print('Encoded email: $encodedEmail'); // Debug log
+    print('Request URL: $uri'); // Debug log
+
+    try {
+      final resp = await http.get(uri).timeout(const Duration(seconds: 20));
+
+      print('Response status: ${resp.statusCode}'); // Debug log
+      print('Response body: ${resp.body}'); // Debug log
+
+      final body = resp.body.isNotEmpty ? resp.body : '{}';
+
+      Map<String, dynamic> data;
+      try {
+        data = json.decode(body) as Map<String, dynamic>;
+      } catch (_) {
+        data = {'raw': body};
+      }
+
+      if (resp.statusCode == 200) {
+        return {'success': true, 'data': data};
+      }
+      return {
+        'success': false,
+        'message': data['detail']?.toString() ??
+            data['raw']?.toString() ??
+            'Failed to get profile (${resp.statusCode})',
       };
     } on Exception catch (e) {
       return {'success': false, 'message': 'Network error: $e'};

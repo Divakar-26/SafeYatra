@@ -1,19 +1,23 @@
 // home_screen.dart
+import 'dart:async'; // for Timer
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'auth_screen.dart';
 import 'live_map.dart';
 import 'heartbeat_panel.dart';
-import 'package:url_launcher/url_launcher.dart'; // ADD for launchUrl with Uri [uses tel:]
-// If you prefer string helpers, use: import 'package:url_launcher/url_launcher_string.dart';
+import 'package:url_launcher/url_launcher.dart'; // For tel: calls
+import 'profile_screen.dart';
 
 class HomeScreen extends StatefulWidget {
-  final String username;
-  const HomeScreen({super.key, required this.username});
+  final String email;
+  final String name;
+
+  const HomeScreen({super.key, required this.email, required this.name});
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
+
 
 class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin {
@@ -22,10 +26,11 @@ class _HomeScreenState extends State<HomeScreen>
   late Animation<double> _fadeAnimation;
   late Animation<Offset> _slideAnimation;
 
-  static const List<Widget> _widgetOptions = <Widget>[
-    DashboardTab(),
-    ProfileTab(),
-    SettingsTab(),
+  // Build tabs with per-instance data (widget.username)
+  List<Widget> get _tabs => <Widget>[
+    const DashboardTab(),
+    ProfileScreen(email: widget.email),
+    const SettingsTab(),
   ];
 
   @override
@@ -80,7 +85,7 @@ class _HomeScreenState extends State<HomeScreen>
         backgroundColor: Colors.transparent,
         appBar: AppBar(
           title: Text(
-            'Welcome, ${widget.username}',
+            'Welcome, ${widget.name}',
             style: const TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.w600,
@@ -130,14 +135,14 @@ class _HomeScreenState extends State<HomeScreen>
               ),
             ),
 
-            // Tab content anchored at the top (single render path)
+            // Tab content anchored at the top
             Align(
               alignment: Alignment.topCenter,
               child: SlideTransition(
                 position: _slideAnimation,
                 child: FadeTransition(
                   opacity: _fadeAnimation,
-                  child: _widgetOptions.elementAt(_selectedIndex),
+                  child: _tabs.elementAt(_selectedIndex), // <- use getter here
                 ),
               ),
             ),
@@ -207,7 +212,12 @@ class DashboardTab extends StatefulWidget {
 class _DashboardTabState extends State<DashboardTab> {
   int _segment = 0; // 0 = Location, 1 = Heartbeat
 
-  // ADD: Emergency call helpers
+  // Panic press-and-hold state
+  bool _isPanicHolding = false;
+  double _panicProgress = 0.0;
+  Timer? _panicTimer;
+
+  // Confirmation + dial
   Future<void> _confirmAndCall(BuildContext context, String label, String number) async {
     final result = await showDialog<bool>(
       context: context,
@@ -226,6 +236,57 @@ class _DashboardTabState extends State<DashboardTab> {
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
+  // PANIC: start 2s hold countdown
+  void _startPanicHold() {
+    _panicTimer?.cancel();
+    setState(() {
+      _isPanicHolding = true;
+      _panicProgress = 0.0;
+    });
+
+    // 2 seconds -> 40 ticks of 50ms = progress to 1.0
+    _panicTimer = Timer.periodic(const Duration(milliseconds: 50), (t) {
+      setState(() {
+        _panicProgress += 1 / 40;
+        if (_panicProgress >= 1.0) {
+          _panicProgress = 1.0;
+          _isPanicHolding = false;
+          t.cancel();
+          _onPanicTriggered();
+        }
+      });
+    });
+  }
+
+  void _cancelPanicHold() {
+    _panicTimer?.cancel();
+    setState(() {
+      _isPanicHolding = false;
+      _panicProgress = 0.0;
+    });
+  }
+
+  Future<void> _onPanicTriggered() async {
+    final ctx = context;
+    if (!mounted) return;
+    await showDialog(
+      context: ctx,
+      builder: (dCtx) => AlertDialog(
+        title: const Text('PANIC Triggered'),
+        content: const Text('Hold complete. Execute your emergency workflow here.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dCtx), child: const Text('OK')),
+        ],
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _panicTimer?.cancel();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
@@ -236,7 +297,7 @@ class _DashboardTabState extends State<DashboardTab> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Top segmented control
+          // Segmented control
           Container(
             decoration: BoxDecoration(
               color: Colors.black.withOpacity(0.15),
@@ -268,24 +329,24 @@ class _DashboardTabState extends State<DashboardTab> {
 
           const SizedBox(height: 10),
 
-          // The active panel directly under the toggle
+          // Active panel
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 250),
             switchInCurve: Curves.easeOut,
             switchOutCurve: Curves.easeIn,
             child: _segment == 0
-                ? const LiveMap(key: ValueKey('loc'))          // fixed 350 height inside
-                : const HeartbeatPanel(key: ValueKey('hb')),   // fixed 350 height inside
+                ? const LiveMap(key: ValueKey('loc'))
+                : const HeartbeatPanel(key: ValueKey('hb')),
           ),
 
           const SizedBox(height: 12),
 
-          // Emergency buttons row
+          // Emergency primary row
           Row(
             children: [
               Expanded(
                 child: FilledButton.icon(
-                  onPressed: () => _confirmAndCall(context, 'Ambulance', '108'), // India ambulance
+                  onPressed: () => _confirmAndCall(context, 'Ambulance', '108'),
                   style: FilledButton.styleFrom(
                     backgroundColor: Colors.redAccent,
                     foregroundColor: Colors.white,
@@ -299,7 +360,7 @@ class _DashboardTabState extends State<DashboardTab> {
               const SizedBox(width: 10),
               Expanded(
                 child: OutlinedButton.icon(
-                  onPressed: () => _confirmAndCall(context, 'Emergency', '112'), // Single emergency
+                  onPressed: () => _confirmAndCall(context, 'Emergency', '112'),
                   style: OutlinedButton.styleFrom(
                     side: BorderSide(color: cs.primary),
                     foregroundColor: cs.primary,
@@ -312,36 +373,108 @@ class _DashboardTabState extends State<DashboardTab> {
               ),
             ],
           ),
-        ],
-      ),
-    );
-  }
-}
 
-// Profile Tab (example placeholder)
-class ProfileTab extends StatelessWidget {
-  const ProfileTab({super.key});
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            width: 120,
-            height: 120,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.teal.withOpacity(0.2),
-              border: Border.all(color: Colors.teal, width: 2),
-            ),
-            child: const Icon(Icons.person_rounded, size: 60, color: Colors.teal),
+          const SizedBox(height: 10),
+
+          // Emergency secondary row: Women and Child helplines
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _confirmAndCall(context, 'Women Helpline', '1091'),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Colors.pinkAccent),
+                    foregroundColor: Colors.pinkAccent,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  icon: const Icon(Icons.woman_2_rounded),
+                  label: const Text('Call women helpline'),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _confirmAndCall(context, 'Child Helpline', '1098'),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Colors.orange),
+                    foregroundColor: Colors.orange,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  icon: const Icon(Icons.child_care_rounded),
+                  label: const Text('Call child helpline'),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 24),
-          const Text('Your Profile', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.grey)),
-          const SizedBox(height: 12),
-          const Text('Manage your personal information', style: TextStyle(fontSize: 16, color: Colors.grey)),
+
+          const SizedBox(height: 8),
+
+          // PANIC: Full-width press-and-hold button
+          GestureDetector(
+            onLongPressStart: (_) => _startPanicHold(),
+            onLongPressEnd: (_) => _cancelPanicHold(),
+            onLongPressCancel: _cancelPanicHold,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Container(
+                  height: 50,
+                  decoration: BoxDecoration(
+                    color: Colors.red.shade700,
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.red.shade900.withOpacity(0.4),
+                        blurRadius: 10,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
+                  ),
+                ),
+                if (_isPanicHolding)
+                  Positioned(
+                    right: 14,
+                    child: SizedBox(
+                      width: 26,
+                      height: 26,
+                      child: CircularProgressIndicator(
+                        value: _panicProgress.clamp(0.0, 1.0),
+                        strokeWidth: 3,
+                        valueColor: const AlwaysStoppedAnimation<Color>(Colors.white),
+                        backgroundColor: Colors.white24,
+                      ),
+                    ),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(Icons.sos_rounded, color: Colors.white),
+                      const SizedBox(width: 8),
+                      Text(
+                        _isPanicHolding ? 'Hold to trigger...' : 'PANIC',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: 1.0,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Press and hold for 2 seconds to activate',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white70, fontSize: 12),
+          ),
         ],
       ),
     );
