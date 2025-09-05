@@ -1,10 +1,8 @@
-// heartbeat_panel.dart (using flutter_blue_plus)
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter/services.dart';
 
 const platform = MethodChannel('ble_utils');
@@ -44,10 +42,12 @@ Future<void> _requestPermissions() async {
 // Use the same UUIDs as your ESP32
 final String customService = "12345678-1234-1234-1234-123456789abc";
 final String customCharacteristic = "12345678-1234-1234-1234-123456789def";
+final String crashCharacteristic = "12345678-1234-1234-1234-123456789aaa";
 
 StreamSubscription<List<ScanResult>>? _scanSub;
 BluetoothDevice? _connectedDevice;
 StreamSubscription<List<int>>? _notifySub;
+StreamSubscription<List<int>>? _crashSub;
 bool _isConnected = false;
 
 void startScan(Function(BluetoothDevice) onDeviceFound) {
@@ -79,11 +79,12 @@ void startScan(Function(BluetoothDevice) onDeviceFound) {
 }
 
 void connectAndSubscribe(BluetoothDevice device, Function(int) onIntUpdate,
-    Function(String) onStatus) {
+    Function(String) onStatus, Function onCrashDetected) {
   onStatus("Connecting...");
 
   // Cancel any existing connection first
   _notifySub?.cancel();
+  _crashSub?.cancel();
 
   // Listen to connection state changes
   device.connectionState.listen((state) {
@@ -93,11 +94,12 @@ void connectAndSubscribe(BluetoothDevice device, Function(int) onIntUpdate,
       onStatus("Connected");
 
       // Discover services after connection
-      discoverServices(device, onIntUpdate, onStatus);
+      discoverServices(device, onIntUpdate, onStatus, onCrashDetected);
     } else if (state == BluetoothConnectionState.disconnected) {
       _isConnected = false;
       onStatus("Disconnected");
       _notifySub?.cancel();
+      _crashSub?.cancel();
     }
   }, onError: (e) {
     print("❌ Connection state error: $e");
@@ -112,7 +114,7 @@ void connectAndSubscribe(BluetoothDevice device, Function(int) onIntUpdate,
 }
 
 void discoverServices(BluetoothDevice device, Function(int) onIntUpdate,
-    Function(String) onStatus) {
+    Function(String) onStatus, Function onCrashDetected) {
   device.discoverServices().then((services) {
     print("✅ Discovered ${services.length} services");
 
@@ -128,6 +130,7 @@ void discoverServices(BluetoothDevice device, Function(int) onIntUpdate,
           print(
               "Characteristic: ${characteristic.uuid}, properties: ${characteristic.properties}");
 
+          // Handle regular integer characteristic
           if (characteristic.uuid.toString().toLowerCase() ==
               customCharacteristic.toLowerCase()) {
             print("Found our characteristic: ${characteristic.uuid}");
@@ -155,8 +158,31 @@ void discoverServices(BluetoothDevice device, Function(int) onIntUpdate,
               print("❌ Characteristic does not support notifications");
               onStatus("Characteristic not supported");
             }
+          }
 
-            break;
+          // Handle crash detection characteristic
+          if (characteristic.uuid.toString().toLowerCase() ==
+              crashCharacteristic.toLowerCase()) {
+            print("Found crash characteristic: ${characteristic.uuid}");
+
+            // Check if characteristic supports notify
+            if (characteristic.properties.notify) {
+              // Subscribe to crash notifications
+              _crashSub = characteristic.value.listen((data) {
+                print("🚨 Crash detected! Data: $data");
+                if (data.isNotEmpty && data[0] == 1) {
+                  // Trigger crash response UI
+                  onCrashDetected();
+                }
+              });
+
+              // Enable notifications
+              characteristic.setNotifyValue(true).then((_) {
+                print("✅ Crash notifications enabled");
+              }).catchError((e) {
+                print("❌ Failed to enable crash notifications: $e");
+              });
+            }
           }
         }
         break;
@@ -171,6 +197,7 @@ void discoverServices(BluetoothDevice device, Function(int) onIntUpdate,
 void disposeBle() {
   _isConnected = false;
   _notifySub?.cancel();
+  _crashSub?.cancel();
   _scanSub?.cancel();
 
   // Disconnect if connected
@@ -197,6 +224,7 @@ class _HeartbeatPanelState extends State<HeartbeatPanel>
   int _value = 0;
   String _status = "Disconnected";
   bool _isScanning = false;
+  bool _crashDetected = false;
 
   @override
   void initState() {
@@ -281,8 +309,36 @@ class _HeartbeatPanelState extends State<HeartbeatPanel>
         setState(() => _value = value);
       }, (status) {
         setState(() => _status = status);
-      });
+      }, _onCrashDetected);
     });
+  }
+
+  void _onCrashDetected() {
+    setState(() {
+      _crashDetected = true;
+    });
+
+    // Show alert dialog
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text("Crash Detected!"),
+          content: const Text("A potential crash has been detected."),
+          actions: <Widget>[
+            TextButton(
+              child: const Text("OK"),
+              onPressed: () {
+                Navigator.of(context).pop();
+                setState(() {
+                  _crashDetected = false;
+                });
+              },
+            ),
+          ],
+        );
+      },
+    );
   }
 
   void _reconnect() async {
@@ -308,8 +364,15 @@ class _HeartbeatPanelState extends State<HeartbeatPanel>
         child: Container(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(20),
-            color: Colors.white.withOpacity(0.06),
-            border: Border.all(color: Colors.white12),
+            color: _crashDetected
+                ? Colors.red.withOpacity(0.2)
+                : Colors.white.withOpacity(0.06),
+            border: Border.all(
+              color: _crashDetected
+                  ? Colors.red
+                  : Colors.white12,
+              width: _crashDetected ? 2 : 1,
+            ),
             boxShadow: [
               BoxShadow(
                 color: Colors.black.withOpacity(0.25),
@@ -320,7 +383,12 @@ class _HeartbeatPanelState extends State<HeartbeatPanel>
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [
+              colors: _crashDetected
+                  ? [
+                Colors.red.withOpacity(0.15),
+                Colors.orange.withOpacity(0.1),
+              ]
+                  : [
                 Colors.white.withOpacity(0.08),
                 Colors.white.withOpacity(0.02),
               ],
@@ -330,6 +398,32 @@ class _HeartbeatPanelState extends State<HeartbeatPanel>
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
+              // Crash alert indicator
+              if (_crashDetected)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.warning, color: Colors.red[100], size: 16),
+                      const SizedBox(width: 6),
+                      Text(
+                        'CRASH DETECTED',
+                        style: TextStyle(
+                          color: Colors.red[100],
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              if (_crashDetected) const SizedBox(height: 10),
+
               ScaleTransition(
                 scale: _scale,
                 child: Container(
@@ -339,27 +433,34 @@ class _HeartbeatPanelState extends State<HeartbeatPanel>
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.tealAccent.withOpacity(0.35),
+                        color: _crashDetected
+                            ? Colors.red.withOpacity(0.5)
+                            : Colors.tealAccent.withOpacity(0.35),
                         blurRadius: 30,
                         spreadRadius: 2,
                       ),
                     ],
                   ),
                   child: Icon(
-                    Icons.favorite,
-                    color:
-                        _isConnected ? Colors.tealAccent.shade400 : Colors.grey,
+                    _crashDetected ? Icons.warning : Icons.favorite,
+                    color: _crashDetected
+                        ? Colors.red
+                        : _isConnected
+                        ? Colors.tealAccent.shade400
+                        : Colors.grey,
                     size: 68,
                   ),
                 ),
               ),
               const SizedBox(height: 16),
               Text(
-                'Heartbeat',
+                _crashDetected ? 'CRASH ALERT!' : 'Heartbeat',
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.w700,
-                  color: const Color.fromARGB(255, 231, 7, 7),
+                  color: _crashDetected
+                      ? Colors.red
+                      : const Color.fromARGB(255, 231, 7, 7),
                   letterSpacing: 0.2,
                 ),
               ),
@@ -374,25 +475,35 @@ class _HeartbeatPanelState extends State<HeartbeatPanel>
               const SizedBox(height: 18),
               Container(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 decoration: BoxDecoration(
                   color: Colors.black.withOpacity(0.25),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white10),
+                  border: Border.all(
+                    color: _crashDetected
+                        ? Colors.red
+                        : Colors.white10,
+                  ),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.monitor_heart_rounded,
-                        color: _isConnected
-                            ? Colors.tealAccent.shade400
-                            : Colors.grey,
-                        size: 22),
+                    Icon(
+                      Icons.monitor_heart_rounded,
+                      color: _crashDetected
+                          ? Colors.red
+                          : _isConnected
+                          ? Colors.tealAccent.shade400
+                          : Colors.grey,
+                      size: 22,
+                    ),
                     const SizedBox(width: 8),
                     Text(
                       '$_value',
                       style: TextStyle(
-                        color: _isConnected
+                        color: _crashDetected
+                            ? Colors.red
+                            : _isConnected
                             ? Colors.tealAccent.shade400
                             : Colors.grey,
                         fontSize: 22,

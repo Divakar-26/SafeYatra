@@ -56,6 +56,7 @@ dev_dependencies:
   latlong2: ^0.9.0
   flutter_reactive_ble: ^5.4.0  # add this line
   permission_handler: ^11.0.1
+  flutter_launcher_icons: "^0.13.1"  # Add this line
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -65,6 +66,12 @@ dev_dependencies:
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/logo.png"
+  adaptive_icon_background: "#0D1B2A"
+
 # The following section is specific to Flutter packages.
 flutter:
 
@@ -72,6 +79,8 @@ flutter:
   # included with your application, so that you can use the icons in
   # the material Icons class.
   uses-material-design: true
+  assets:
+    - assets/logo.png  # Make sure this file exists
 
   # To add assets to your application, add an assets section, like this:
   # assets:
@@ -103,3 +112,4 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
