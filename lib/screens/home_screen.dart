@@ -7,6 +7,9 @@ import 'live_map.dart';
 import 'heartbeat_panel.dart';
 import 'package:url_launcher/url_launcher.dart'; // For tel: calls
 import 'profile_screen.dart';
+import '../services/location_service.dart';
+import '../services/api_service.dart';
+
 
 class HomeScreen extends StatefulWidget {
   final String email;
@@ -30,12 +33,13 @@ class _HomeScreenState extends State<HomeScreen>
   List<Widget> get _tabs => <Widget>[
     const DashboardTab(),
     ProfileScreen(email: widget.email),
-    const SettingsTab(),
+    SettingsTab(email: widget.email),
   ];
 
   @override
   void initState() {
     super.initState();
+
     _controller = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 800),
@@ -56,7 +60,11 @@ class _HomeScreenState extends State<HomeScreen>
       ),
     );
     _controller.forward();
+
+    // 🚀 Start live location updates
+    LocationService.startLiveUpdates(widget.email);
   }
+
 
   @override
   void dispose() {
@@ -482,18 +490,201 @@ class _DashboardTabState extends State<DashboardTab> {
 }
 
 // Settings Tab (example placeholder)
-class SettingsTab extends StatelessWidget {
-  const SettingsTab({super.key});
+// Settings Tab with privacy toggles
+class SettingsTab extends StatefulWidget {
+  final String email;
+
+  const SettingsTab({super.key, required this.email});
+
+  @override
+  State<SettingsTab> createState() => _SettingsTabState();
+}
+
+class _SettingsTabState extends State<SettingsTab> {
+  bool _shareHealth = false;
+  bool _shareLocation = false;
+  bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPrivacySettings();
+  }
+
+  Future<void> _loadPrivacySettings() async {
+    setState(() => _isLoading = true);
+
+    final result = await ApiService.getPrivacySettings(widget.email);
+
+    if (result['success'] == true) {
+      setState(() {
+        _shareHealth = result['share_health'] ?? false;
+        _shareLocation = result['share_location'] ?? false;
+        _isLoading = false;
+      });
+    } else {
+      setState(() => _isLoading = false);
+      // Optional: Show error message
+    }
+  }
+
+  Future<void> _updatePrivacySettings() async {
+    setState(() => _isLoading = true);
+
+    final result = await ApiService.updatePrivacySettings(
+      widget.email,
+      _shareHealth,
+      _shareLocation,
+    );
+
+    setState(() => _isLoading = false);
+
+    if (result['success'] == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Privacy settings updated'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to update: ${result['message']}'),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.all(20),
+    return Padding(
+      padding: const EdgeInsets.all(20),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Settings', style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.grey)),
-          SizedBox(height: 12),
-          Text('Customize your experience', style: TextStyle(fontSize: 16, color: Colors.grey)),
+          const Text(
+            'Privacy Settings',
+            style: TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+                color: Colors.white
+            ),
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'Control what data you share for safety features',
+            style: TextStyle(fontSize: 16, color: Colors.grey),
+          ),
+          const SizedBox(height: 32),
+
+          if (_isLoading)
+            const Center(child: CircularProgressIndicator())
+          else
+            Column(
+              children: [
+                // Health Data Toggle
+                _buildPrivacyToggle(
+                  value: _shareHealth,
+                  onChanged: (value) => setState(() => _shareHealth = value!),
+                  title: 'Share Health Data',
+                  subtitle: 'Allow emergency services to access your medical information when needed',
+                  icon: Icons.medical_services_outlined,
+                ),
+                const SizedBox(height: 24),
+
+                // Location Sharing Toggle
+                _buildPrivacyToggle(
+                  value: _shareLocation,
+                  onChanged: (value) => setState(() => _shareLocation = value!),
+                  title: 'Share Location',
+                  subtitle: 'Enable location sharing for crash detection and emergency services',
+                  icon: Icons.location_on_outlined,
+                ),
+                const SizedBox(height: 32),
+
+                // Save Button
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _updatePrivacySettings,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.tealAccent.shade400,
+                      foregroundColor: Colors.black,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Text(
+                      'Save Privacy Settings',
+                      style: TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPrivacyToggle({
+    required bool value,
+    required ValueChanged<bool?> onChanged,
+    required String title,
+    required String subtitle,
+    required IconData icon,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1C2A3A).withOpacity(0.9),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.08)),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: Colors.tealAccent.shade400, size: 28),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 16,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.7),
+                    fontSize: 14,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          Switch(
+            value: value,
+            onChanged: onChanged,
+            activeColor: Colors.tealAccent.shade400,
+            activeTrackColor: Colors.tealAccent.shade400.withOpacity(0.5),
+          ),
         ],
       ),
     );
