@@ -221,10 +221,13 @@ class _HeartbeatPanelState extends State<HeartbeatPanel>
   late AnimationController _controller;
   late Animation<double> _scale;
 
+  bool _crashDetected = false;
+  DateTime? _lastCrashTime; // Add this
+
   int _value = 0;
   String _status = "Disconnected";
   bool _isScanning = false;
-  bool _crashDetected = false;
+
 
   @override
   void initState() {
@@ -314,6 +317,18 @@ class _HeartbeatPanelState extends State<HeartbeatPanel>
   }
 
   void _onCrashDetected() {
+    // Add cooldown period - prevent multiple dialogs within 10 seconds
+    final now = DateTime.now();
+    if (_lastCrashTime != null &&
+        now.difference(_lastCrashTime!) < const Duration(seconds: 3)) {
+      return; // Still in cooldown period
+    }
+
+    _lastCrashTime = now;
+
+    // Prevent multiple dialogs from opening
+    if (_crashDetected) return;
+
     setState(() {
       _crashDetected = true;
     });
@@ -321,13 +336,14 @@ class _HeartbeatPanelState extends State<HeartbeatPanel>
     // Show alert dialog
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (BuildContext context) {
         return AlertDialog(
           title: const Text("Crash Detected!"),
-          content: const Text("A potential crash has been detected."),
+          content: const Text("A potential crash has been detected. Please check your status."),
           actions: <Widget>[
             TextButton(
-              child: const Text("OK"),
+              child: const Text("I'm OK"),
               onPressed: () {
                 Navigator.of(context).pop();
                 setState(() {
@@ -340,6 +356,8 @@ class _HeartbeatPanelState extends State<HeartbeatPanel>
       },
     );
   }
+
+
 
   void _reconnect() async {
     if (_connectedDevice != null) {

@@ -294,7 +294,7 @@ class _AuthScreenState extends State<AuthScreen>
                                 ),
                                 const SizedBox(height: 16),
                                 Text(
-                                  'Welcome Back',
+                                  'Welcome To SafeYatra',
                                   style: TextStyle(
                                     fontSize: 28,
                                     fontWeight: FontWeight.bold,

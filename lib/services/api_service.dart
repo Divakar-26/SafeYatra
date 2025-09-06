@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class ApiService {
-  static const String baseUrl = "https://0b99aab9e6d4.ngrok-free.app";
+  static const String baseUrl = "https://121b16992cad.ngrok-free.app";
   static const _jsonHeaders = {'Content-Type': 'application/json'};
 
   static Future<Map<String, dynamic>> register(
@@ -107,6 +107,8 @@ class ApiService {
       String emergencyNumber,
       String medicalConditions,
       String allergies,
+      {bool shareHealth = false,      // Add optional parameters
+        bool shareLocation = false}
       ) async {
     final uri = Uri.parse('$baseUrl/profile/email/$email');
     try {
@@ -124,6 +126,8 @@ class ApiService {
           'emergency_contact': emergencyNumber,
           'medical_conditions': medicalConditions,
           'allergies': allergies,
+          'share_health': shareHealth,        // Add these
+          'share_location': shareLocation,    // Add these
         }),
       )
           .timeout(const Duration(seconds: 20));
@@ -230,6 +234,47 @@ class ApiService {
         'message': data['detail']?.toString() ??
             data['raw']?.toString() ??
             'Failed to get profile (${resp.statusCode})',
+      };
+    } on Exception catch (e) {
+      return {'success': false, 'message': 'Network error: $e'};
+    }
+  }
+
+  static Future<Map<String, dynamic>> updateUserLocation(
+      String email,
+      double latitude,
+      double longitude,
+      ) async {
+    final uri = Uri.parse('$baseUrl/location/$email');
+    try {
+      final resp = await http
+          .post(
+        uri,
+        headers: _jsonHeaders,
+        body: json.encode({
+          'latitude': latitude,
+          'longitude': longitude,
+        }),
+      )
+          .timeout(const Duration(seconds: 10));
+
+      final body = resp.body.isNotEmpty ? resp.body : '{}';
+      Map<String, dynamic> data;
+      try {
+        data = json.decode(body) as Map<String, dynamic>;
+      } catch (_) {
+        data = {'raw': body};
+      }
+
+      if (resp.statusCode == 200) {
+        return {'success': true, 'message': data['message'] ?? 'Location updated'};
+      }
+
+      return {
+        'success': false,
+        'message': data['detail']?.toString() ??
+            data['raw']?.toString() ??
+            'Location update failed (${resp.statusCode})',
       };
     } on Exception catch (e) {
       return {'success': false, 'message': 'Network error: $e'};

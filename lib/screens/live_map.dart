@@ -54,9 +54,16 @@ class _LiveMapState extends State<LiveMap> with WidgetsBindingObserver {
     Geofence(
       center: const LatLng(28.463093, 77.490384),
       radius: 100, // 100 meters radius
-      name: "South Delhi Zone",
-      color: Colors.orange.withOpacity(0.3),
+      name: "NIET",
+      color: Colors.green.withOpacity(0.3),
     ),
+    Geofence(
+      center: const LatLng(28.43752, 77.44666),
+      radius: 500, // 100 meters radius
+      name: "Flodded River",
+      color: Colors.red.withOpacity(0.5),
+    ),
+
   ];
 
   String _geofenceStatus = "";
